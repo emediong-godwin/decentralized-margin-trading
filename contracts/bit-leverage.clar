@@ -277,3 +277,79 @@
         )
     )
 )
+
+;; Private Functions
+
+;; Calculate profit or loss for a position
+(define-private (calculate-pnl (position {owner: principal, 
+                                        position-type: uint,
+                                        size: uint,
+                                        entry-price: uint,
+                                        leverage: uint,
+                                        collateral: uint,
+                                        liquidation-price: uint,
+                                        is-liquidated: bool}))
+    (let ((current-price-local (var-get current-price)))
+        (if (is-eq (get position-type position) TYPE-LONG)
+            ;; Long position PnL calculation
+            (if (>= current-price-local (get entry-price position))
+                ;; Profit scenario
+                (let ((price-diff (- current-price-local (get entry-price position))))
+                    (* price-diff (get size position)))
+                ;; Loss scenario
+                (let ((price-diff (- (get entry-price position) current-price-local)))
+                    (if (> (* price-diff (get size position)) (get collateral position))
+                        ;; Cap loss at collateral amount
+                        (- u0 (get collateral position))
+                        (- u0 (* price-diff (get size position))))))
+            ;; Short position PnL calculation
+            (if (>= (get entry-price position) current-price-local)
+                ;; Profit scenario
+                (let ((price-diff (- (get entry-price position) current-price-local)))
+                    (* price-diff (get size position)))
+                ;; Loss scenario
+                (let ((price-diff (- current-price-local (get entry-price position))))
+                    (if (> (* price-diff (get size position)) (get collateral position))
+                        ;; Cap loss at collateral amount
+                        (- u0 (get collateral position))
+                        (- u0 (* price-diff (get size position))))))
+        )
+    )
+)
+
+;; Admin Functions
+
+;; Update market price (oracle function in production)
+(define-public (update-price (new-price uint))
+    (begin
+        ;; Verify caller is contract owner
+        (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-UNAUTHORIZED)
+        ;; Verify price is valid
+        (asserts! (> new-price u0) ERR-INVALID-PRICE)
+        ;; Update price
+        (var-set current-price new-price)
+        (ok true)
+    )
+)
+
+;; Transfer contract ownership
+(define-public (set-contract-owner (new-owner principal))
+    (begin
+        ;; Verify caller is current contract owner
+        (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-UNAUTHORIZED)
+        ;; Verify new owner is not null principal
+        (asserts! (not (is-eq new-owner tx-sender)) ERR-UNAUTHORIZED)
+        ;; Update contract owner
+        (var-set contract-owner new-owner)
+        (ok true)
+    )
+)
+
+;; Pause or unpause contract operations
+(define-public (set-contract-paused (paused bool))
+    (begin
+        (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-UNAUTHORIZED)
+        (var-set contract-paused paused)
+        (ok true)
+    )
+)
